@@ -27,15 +27,30 @@ class ShareReceiverActivity : ComponentActivity() {
             return
         }
 
+        val cleaned = cleanSharedText(text)
+
         val store = Store(applicationContext)
         lifecycleScope.launch {
-            store.addWord(text)
+            store.addWord(cleaned)
             Toast.makeText(
                 this@ShareReceiverActivity,
-                "Hozzáadva: ${text.trim()}",
+                "Hozzáadva: $cleaned",
                 Toast.LENGTH_SHORT
             ).show()
             finish()
         }
+    }
+
+    /**
+     * A Chrome a kijelölt szöveg mellé gyakran hozzáfűzi az oldal URL-jét is
+     * (külön sorban). Ez a függvény ezt eldobja, és csak a tényleges
+     * kijelölt szót/kifejezést adja vissza.
+     */
+    private fun cleanSharedText(raw: String): String {
+        val urlRegex = Regex("^(https?://|www\\.)\\S+$", RegexOption.IGNORE_CASE)
+        val firstNonUrlLine = raw.lines()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() && !urlRegex.matches(it) }
+        return (firstNonUrlLine ?: raw.trim())
     }
 }
