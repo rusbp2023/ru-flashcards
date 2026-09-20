@@ -161,6 +161,7 @@ fun FlashcardScreen(
                     }
                 }
             }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             OutlinedButton(onClick = {
                 onDelete(card.id)
