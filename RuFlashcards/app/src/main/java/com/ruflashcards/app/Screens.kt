@@ -156,8 +156,7 @@ fun FlashcardScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (!flipped) {
                         Text(card.dictionaryForm, style = MaterialTheme.typography.headlineMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text("(eredeti: ${card.original})", style = MaterialTheme.typography.bodySmall)
+                      
                     } else {
                         Text(card.translation, style = MaterialTheme.typography.headlineMedium)
                     }
