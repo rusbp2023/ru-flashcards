@@ -152,22 +152,15 @@ fun FlashcardScreen(
                 .padding(vertical = 8.dp),
             onClick = { flipped = !flipped }
         ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (!flipped) {
-                        Text(card.dictionaryForm, style = MaterialTheme.typography.headlineMedium)
-                      
-                    } else {
                         Text(card.translation, style = MaterialTheme.typography.headlineMedium)
+                    } else {
+                        Text(card.dictionaryForm, style = MaterialTheme.typography.headlineMedium)
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        if (flipped) "Koppints: vissza" else "Koppints a fordításért",
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
             }
-        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             OutlinedButton(onClick = {
                 onDelete(card.id)
