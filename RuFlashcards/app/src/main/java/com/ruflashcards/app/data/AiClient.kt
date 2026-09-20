@@ -35,13 +35,20 @@ class AiClient(private val settings: AiSettings) {
         return parseResponse(rawText, words)
     }
 
-    private fun buildPrompt(words: List<String>): String {
+        private fun buildPrompt(words: List<String>): String {
         val list = words.joinToString("\n") { "- $it" }
         return """
             A következő orosz szavak ragozott/toldalékolt alakban vannak megadva, egy weboldalról kimásolva.
             Minden szóhoz add meg:
             1. a szótári alapalakot (ige esetén infinitivus, főnév esetén egyes szám alanyeset, stb.)
-            2. a legjellemzőbb magyar fordítást, röviden.
+            2. a legjellemzőbb magyar fordítást a szótári alakhoz, röviden.
+
+            A "translation" mezőbe KIZÁRÓLAG a magyar szót/kifejezést írd, semmi mást.
+            NE tedd bele az eredeti orosz szó nyelvtani elemzését (pl. hogy milyen esetben,
+            számban vagy igeidőben áll az eredeti alak) — az a "dictionary_form" mezőtől független,
+            és a "translation" mezőben nem kell megjelennie zárójelben vagy bármilyen más formában.
+            Például ha az eredeti szó "домов" (birtokos eset, többes szám), a dictionary_form "дом",
+            a translation pedig egyszerűen "ház" legyen — nem "ház (birtokos eset, többes szám)".
 
             Válaszolj KIZÁRÓLAG egy JSON tömbbel, semmi mást ne írj a válaszba (se magyarázatot, se code fence-t).
             A formátum pontosan ez legyen:
