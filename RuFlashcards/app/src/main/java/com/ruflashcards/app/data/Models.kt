@@ -13,6 +13,12 @@ data class Flashcard(
     val known: Boolean = false
 )
 
+data class Deck(
+    val id: Long,
+    val name: String,
+    val cards: List<Flashcard>
+)
+
 enum class AiProvider { ANTHROPIC, OPENAI, GEMINI }
 
 data class AiSettings(
@@ -25,5 +31,5 @@ data class AiSettings(
 fun defaultModelFor(provider: AiProvider): String = when (provider) {
     AiProvider.ANTHROPIC -> "claude-sonnet-4-6"
     AiProvider.OPENAI -> "gpt-4o-mini"
-    AiProvider.GEMINI -> "gemini-2.0-flash"
+    AiProvider.GEMINI -> "gemini-3.5-flash"
 }

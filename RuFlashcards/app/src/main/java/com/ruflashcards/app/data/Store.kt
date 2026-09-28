@@ -1,6 +1,7 @@
 package com.ruflashcards.app.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -14,7 +15,9 @@ val Context.dataStore by preferencesDataStore(name = "ru_flashcards")
 
 private object Keys {
     val WORDS = stringPreferencesKey("words_json")
-    val FLASHCARDS = stringPreferencesKey("flashcards_json")
+    val FLASHCARDS = stringPreferencesKey("flashcards_json") // régi, egy paklis tárolás (migrációhoz)
+    val DECKS = stringPreferencesKey("decks_json")
+    val ACTIVE_DECK = stringPreferencesKey("active_deck_id")
     val PROVIDER = stringPreferencesKey("provider")
     val API_KEY = stringPreferencesKey("api_key")
     val MODEL = stringPreferencesKey("model")
@@ -27,8 +30,12 @@ class Store(private val context: Context) {
         parseWords(prefs[Keys.WORDS] ?: "[]")
     }
 
-    val flashcardsFlow: Flow<List<Flashcard>> = context.dataStore.data.map { prefs ->
-        parseFlashcards(prefs[Keys.FLASHCARDS] ?: "[]")
+    val decksFlow: Flow<List<Deck>> = context.dataStore.data.map { prefs ->
+        loadDecks(prefs)
+    }
+
+    val activeDeckIdFlow: Flow<Long> = context.dataStore.data.map { prefs ->
+        activeDeckId(prefs, loadDecks(prefs))
     }
 
     val settingsFlow: Flow<AiSettings> = context.dataStore.data.map { prefs ->
@@ -44,6 +51,8 @@ class Store(private val context: Context) {
             baseUrl = prefs[Keys.BASE_URL] ?: ""
         )
     }
+
+    // ---------- szólista ----------
 
     suspend fun addWord(text: String) {
         val trimmed = text.trim()
@@ -70,31 +79,82 @@ class Store(private val context: Context) {
     suspend fun getWordsOnce(): List<WordItem> =
         parseWords(context.dataStore.data.first()[Keys.WORDS] ?: "[]")
 
+    // ---------- kártyák (mindig az AKTÍV pakliban) ----------
+
     suspend fun addFlashcards(cards: List<Flashcard>) {
         context.dataStore.edit { prefs ->
-            val existing = parseFlashcards(prefs[Keys.FLASHCARDS] ?: "[]").toMutableList()
-            var nextId = (existing.maxOfOrNull { it.id } ?: 0L) + 1
-            cards.forEach { c ->
-                existing.add(c.copy(id = nextId))
-                nextId++
+            val decks = loadDecks(prefs)
+            val activeId = activeDeckId(prefs, decks)
+            val updated = decks.map { deck ->
+                if (deck.id != activeId) deck
+                else {
+                    val list = deck.cards.toMutableList()
+                    var nextId = (list.maxOfOrNull { it.id } ?: 0L) + 1
+                    cards.forEach { c ->
+                        list.add(c.copy(id = nextId))
+                        nextId++
+                    }
+                    deck.copy(cards = list)
+                }
             }
-            prefs[Keys.FLASHCARDS] = serializeFlashcards(existing)
+            saveDecks(prefs, updated, activeId)
         }
     }
 
     suspend fun updateFlashcard(card: Flashcard) {
         context.dataStore.edit { prefs ->
-            val list = parseFlashcards(prefs[Keys.FLASHCARDS] ?: "[]").map {
-                if (it.id == card.id) card else it
+            val decks = loadDecks(prefs)
+            val activeId = activeDeckId(prefs, decks)
+            val updated = decks.map { deck ->
+                if (deck.id != activeId) deck
+                else deck.copy(cards = deck.cards.map { if (it.id == card.id) card else it })
             }
-            prefs[Keys.FLASHCARDS] = serializeFlashcards(list)
+            saveDecks(prefs, updated, activeId)
         }
     }
 
     suspend fun deleteFlashcard(id: Long) {
         context.dataStore.edit { prefs ->
-            val list = parseFlashcards(prefs[Keys.FLASHCARDS] ?: "[]").filterNot { it.id == id }
-            prefs[Keys.FLASHCARDS] = serializeFlashcards(list)
+            val decks = loadDecks(prefs)
+            val activeId = activeDeckId(prefs, decks)
+            val updated = decks.map { deck ->
+                if (deck.id != activeId) deck
+                else deck.copy(cards = deck.cards.filterNot { it.id == id })
+            }
+            saveDecks(prefs, updated, activeId)
+        }
+    }
+
+    // ---------- paklik ----------
+
+    /** Új üres paklit hoz létre, és azonnal aktívvá teszi. */
+    suspend fun createDeck(name: String) {
+        context.dataStore.edit { prefs ->
+            val decks = loadDecks(prefs)
+            val newId = (decks.maxOfOrNull { it.id } ?: 0L) + 1
+            val deckName = name.trim().ifBlank { "Pakli $newId" }
+            saveDecks(prefs, decks + Deck(newId, deckName, emptyList()), newId)
+        }
+    }
+
+    suspend fun setActiveDeck(id: Long) {
+        context.dataStore.edit { prefs ->
+            val decks = loadDecks(prefs)
+            if (decks.any { it.id == id }) saveDecks(prefs, decks, id)
+        }
+    }
+
+    suspend fun deleteDeck(id: Long) {
+        context.dataStore.edit { prefs ->
+            val decks = loadDecks(prefs)
+            var remaining = decks.filterNot { it.id == id }
+            if (remaining.isEmpty()) {
+                val newId = (decks.maxOfOrNull { it.id } ?: 0L) + 1
+                remaining = listOf(Deck(newId, "Első pakli", emptyList()))
+            }
+            val currentActive = activeDeckId(prefs, decks)
+            val newActive = if (currentActive == id) remaining.first().id else currentActive
+            saveDecks(prefs, remaining, newActive)
         }
     }
 
@@ -105,6 +165,33 @@ class Store(private val context: Context) {
             prefs[Keys.MODEL] = settings.model
             prefs[Keys.BASE_URL] = settings.baseUrl
         }
+    }
+
+    // ---------- belső segédfüggvények ----------
+
+    /** Ha még nincs elmentett paklilista, a régi (egy paklis) kártyákból csinál egy "Első pakli"-t. */
+    private fun loadDecks(prefs: Preferences): List<Deck> {
+        val raw = prefs[Keys.DECKS]
+        if (raw != null) {
+            val parsed = parseDecks(raw)
+            if (parsed.isNotEmpty()) return parsed
+        }
+        val legacy = parseFlashcards(prefs[Keys.FLASHCARDS] ?: "[]")
+        return listOf(Deck(1L, "Első pakli", legacy))
+    }
+
+    private fun activeDeckId(prefs: Preferences, decks: List<Deck>): Long {
+        val saved = prefs[Keys.ACTIVE_DECK]?.toLongOrNull()
+        return if (saved != null && decks.any { it.id == saved }) saved else decks.first().id
+    }
+
+    private fun saveDecks(
+        prefs: androidx.datastore.preferences.core.MutablePreferences,
+        decks: List<Deck>,
+        activeId: Long
+    ) {
+        prefs[Keys.DECKS] = serializeDecks(decks)
+        prefs[Keys.ACTIVE_DECK] = activeId.toString()
     }
 
     private fun parseWords(json: String): List<WordItem> {
@@ -128,33 +215,49 @@ class Store(private val context: Context) {
         return arr.toString()
     }
 
-    private fun parseFlashcards(json: String): List<Flashcard> {
-        val arr = JSONArray(json)
-        val out = mutableListOf<Flashcard>()
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            out.add(
-                Flashcard(
-                    id = o.getLong("id"),
-                    original = o.getString("original"),
-                    dictionaryForm = o.getString("dictionaryForm"),
-                    translation = o.getString("translation"),
-                    known = o.optBoolean("known", false)
-                )
-            )
-        }
-        return out
+    private fun parseCard(o: JSONObject) = Flashcard(
+        id = o.getLong("id"),
+        original = o.getString("original"),
+        dictionaryForm = o.getString("dictionaryForm"),
+        translation = o.getString("translation"),
+        known = o.optBoolean("known", false)
+    )
+
+    private fun cardToJson(c: Flashcard) = JSONObject().apply {
+        put("id", c.id)
+        put("original", c.original)
+        put("dictionaryForm", c.dictionaryForm)
+        put("translation", c.translation)
+        put("known", c.known)
     }
 
-    private fun serializeFlashcards(list: List<Flashcard>): String {
+    private fun parseFlashcards(json: String): List<Flashcard> {
+        val arr = JSONArray(json)
+        return (0 until arr.length()).map { parseCard(arr.getJSONObject(it)) }
+    }
+
+    private fun parseDecks(json: String): List<Deck> {
+        val arr = JSONArray(json)
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val cardsArr = o.getJSONArray("cards")
+            Deck(
+                id = o.getLong("id"),
+                name = o.getString("name"),
+                cards = (0 until cardsArr.length()).map { parseCard(cardsArr.getJSONObject(it)) }
+            )
+        }
+    }
+
+    private fun serializeDecks(list: List<Deck>): String {
         val arr = JSONArray()
-        list.forEach { c ->
+        list.forEach { d ->
+            val cardsArr = JSONArray()
+            d.cards.forEach { cardsArr.put(cardToJson(it)) }
             arr.put(JSONObject().apply {
-                put("id", c.id)
-                put("original", c.original)
-                put("dictionaryForm", c.dictionaryForm)
-                put("translation", c.translation)
-                put("known", c.known)
+                put("id", d.id)
+                put("name", d.name)
+                put("cards", cardsArr)
             })
         }
         return arr.toString()

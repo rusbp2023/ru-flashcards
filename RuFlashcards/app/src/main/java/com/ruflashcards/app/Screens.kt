@@ -1,5 +1,6 @@
 package com.ruflashcards.app
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +40,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.ruflashcards.app.data.AiProvider
 import com.ruflashcards.app.data.AiSettings
+import com.ruflashcards.app.data.Deck
 import com.ruflashcards.app.data.Flashcard
 import com.ruflashcards.app.data.WordItem
 import com.ruflashcards.app.data.defaultModelFor
@@ -265,6 +269,84 @@ fun SettingsScreen(
                 "platform.openai.com, aistudio.google.com). A kulcs csak a telefonodon tárolódik, " +
                 "az AI-nak közvetlenül a telefon küldi el a kéréseket.",
             style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
+fun DecksScreen(
+    decks: List<Deck>,
+    activeDeckId: Long,
+    onSelect: (Long) -> Unit,
+    onCreate: (String) -> Unit,
+    onDelete: (Long) -> Unit
+) {
+    var newName by remember { mutableStateOf("") }
+    var deckToDelete by remember { mutableStateOf<Deck?>(null) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            "Az újonnan generált kártyák mindig az aktív pakliba kerülnek.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = newName,
+                onValueChange = { newName = it },
+                label = { Text("Új pakli neve") },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = {
+                onCreate(newName)
+                newName = ""
+            }) { Text("Új pakli") }
+        }
+        Spacer(Modifier.height(12.dp))
+        Divider()
+        LazyColumn {
+            items(decks, key = { it.id }) { deck ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(deck.id) }
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(deck.name, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "${deck.cards.size} kártya" + if (deck.id == activeDeckId) "  ·  ● aktív" else "",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    IconButton(onClick = { deckToDelete = deck }) { Text("✕") }
+                }
+                Divider()
+            }
+        }
+    }
+
+    deckToDelete?.let { deck ->
+        AlertDialog(
+            onDismissRequest = { deckToDelete = null },
+            title = { Text("Pakli törlése") },
+            text = { Text("Biztosan törlöd a(z) \"${deck.name}\" paklit és a benne lévő ${deck.cards.size} kártyát?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(deck.id)
+                    deckToDelete = null
+                }) { Text("Törlés") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deckToDelete = null }) { Text("Mégse") }
+            }
         )
     }
 }
