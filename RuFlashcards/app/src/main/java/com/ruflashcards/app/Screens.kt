@@ -1,5 +1,8 @@
 package com.ruflashcards.app
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.ruflashcards.app.data.AiProvider
@@ -284,6 +288,23 @@ fun DecksScreen(
     var newName by remember { mutableStateOf("") }
     var deckToDelete by remember { mutableStateOf<Deck?>(null) }
 
+    val context = LocalContext.current
+    var pendingExportText by remember { mutableStateOf("") }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(pendingExportText.toByteArray(Charsets.UTF_8))
+                }
+                Toast.makeText(context, "Elmentve", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Nem sikerült a mentés: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -308,6 +329,15 @@ fun DecksScreen(
             }) { Text("Új pakli") }
         }
         Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = {
+                pendingExportText = allDecksToText(decks)
+                exportLauncher.launch("osszes-pakli.txt")
+            },
+            enabled = decks.any { it.cards.isNotEmpty() },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Összes pakli letöltése (txt)") }
+        Spacer(Modifier.height(12.dp))
         Divider()
         LazyColumn {
             items(decks, key = { it.id }) { deck ->
@@ -326,6 +356,13 @@ fun DecksScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
+                    IconButton(
+                        onClick = {
+                            pendingExportText = deckToText(deck)
+                            exportLauncher.launch(safeFileName(deck.name) + ".txt")
+                        },
+                        enabled = deck.cards.isNotEmpty()
+                    ) { Text("⬇") }
                     IconButton(onClick = { deckToDelete = deck }) { Text("✕") }
                 }
                 Divider()
@@ -349,4 +386,19 @@ fun DecksScreen(
             }
         )
     }
+}
+
+// ---- txt export segédfüggvények ----
+// Formátum soronként: orosz szótári alak — magyar fordítás
+
+private fun deckToText(deck: Deck): String =
+    deck.cards.joinToString("\n") { "${it.dictionaryForm} — ${it.translation}" }
+
+private fun allDecksToText(decks: List<Deck>): String =
+    decks.filter { it.cards.isNotEmpty() }
+        .joinToString("\n\n") { deck -> "=== ${deck.name} ===\n" + deckToText(deck) }
+
+private fun safeFileName(name: String): String {
+    val cleaned = name.trim().replace(Regex("[^\\p{L}\\p{N} _-]"), "_")
+    return cleaned.ifBlank { "pakli" }
 }
