@@ -33,3 +33,8 @@ fun defaultModelFor(provider: AiProvider): String = when (provider) {
     AiProvider.OPENAI -> "gpt-4o-mini"
     AiProvider.GEMINI -> "gemini-3.5-flash"
 }
+
+data class ImportSummary(
+    val deckCount: Int,
+    val cardCount: Int
+)

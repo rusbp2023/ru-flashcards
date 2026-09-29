@@ -27,12 +27,34 @@ class AiClient(private val settings: AiSettings) {
         if (settings.apiKey.isBlank()) throw IllegalStateException("Nincs megadva API kulcs a Beállításoknál.")
 
         val prompt = buildPrompt(words)
-        val rawText = when (settings.provider) {
-            AiProvider.ANTHROPIC -> callAnthropic(prompt)
-            AiProvider.OPENAI -> callOpenAi(prompt)
-            AiProvider.GEMINI -> callGemini(prompt)
+        val rawText = withRetry {
+            when (settings.provider) {
+                AiProvider.ANTHROPIC -> callAnthropic(prompt)
+                AiProvider.OPENAI -> callOpenAi(prompt)
+                AiProvider.GEMINI -> callGemini(prompt)
+            }
         }
         return parseResponse(rawText, words)
+    }
+
+    /**
+     * Átmeneti szerverhibáknál (429 túl sok kérés, 500/502/503/504 túlterhelt szerver)
+     * automatikusan újrapróbálkozik: legfeljebb 5 kísérlet, egyre hosszabb várakozással
+     * (3, 6, 9, 12 mp). Más hibát (pl. rossz API kulcs) azonnal továbbad.
+     */
+    private fun <T> withRetry(block: () -> T): T {
+        val maxAttempts = 5
+        var attempt = 1
+        while (true) {
+            try {
+                return block()
+            } catch (e: RuntimeException) {
+                val transient = Regex("hiba \\((429|500|502|503|504)\\)").containsMatchIn(e.message ?: "")
+                if (!transient || attempt >= maxAttempts) throw e
+                Thread.sleep(3000L * attempt)
+                attempt++
+            }
+        }
     }
 
         private fun buildPrompt(words: List<String>): String {

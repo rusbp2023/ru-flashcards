@@ -158,6 +158,87 @@ class Store(private val context: Context) {
         }
     }
 
+    /**
+     * A korábban letöltött txt formátumot (egy pakli: "szótári alak — fordítás" soronként,
+     * vagy több pakli: "=== Pakli neve ===" fejlécekkel elválasztva) visszatölti.
+     * Ha egy adott nevű pakli már létezik, a kártyák abba kerülnek hozzáadásra;
+     * ha nem, új pakli jön létre azzal a névvel.
+     */
+    suspend fun importFromTxt(text: String, fallbackDeckName: String): ImportSummary {
+        val parsed = parseImportText(text, fallbackDeckName)
+        if (parsed.isEmpty()) return ImportSummary(0, 0)
+        var totalCards = 0
+        context.dataStore.edit { prefs ->
+            val decks = loadDecks(prefs).toMutableList()
+            var nextDeckId = (decks.maxOfOrNull { it.id } ?: 0L) + 1
+            parsed.forEach { (name, pairs) ->
+                val idx = decks.indexOfFirst { it.name == name }
+                val startId = if (idx >= 0) {
+                    (decks[idx].cards.maxOfOrNull { it.id } ?: 0L) + 1
+                } else 1L
+                var nid = startId
+                val newCards = pairs.map { (dict, trans) ->
+                    Flashcard(id = nid++, original = dict, dictionaryForm = dict, translation = trans)
+                }
+                totalCards += newCards.size
+                if (idx >= 0) {
+                    decks[idx] = decks[idx].copy(cards = decks[idx].cards + newCards)
+                } else {
+                    decks.add(Deck(nextDeckId, name, newCards))
+                    nextDeckId++
+                }
+            }
+            val activeId = activeDeckId(prefs, decks)
+            saveDecks(prefs, decks, activeId)
+        }
+        return ImportSummary(parsed.size, totalCards)
+    }
+
+    private fun parseImportText(
+        text: String,
+        fallbackDeckName: String
+    ): List<Pair<String, List<Pair<String, String>>>> {
+        val headerRegex = Regex("^===\\s*(.+?)\\s*===$")
+        val lines = text.replace("\r\n", "\n").split("\n")
+        val hasHeaders = lines.any { headerRegex.matches(it.trim()) }
+        val result = mutableListOf<Pair<String, MutableList<Pair<String, String>>>>()
+
+        if (hasHeaders) {
+            var currentList: MutableList<Pair<String, String>>? = null
+            for (raw in lines) {
+                val line = raw.trim()
+                val m = headerRegex.matchEntire(line)
+                if (m != null) {
+                    val name = m.groupValues[1].trim()
+                    val list = mutableListOf<Pair<String, String>>()
+                    result.add(name to list)
+                    currentList = list
+                } else if (line.isNotEmpty()) {
+                    currentList?.let { list -> parseCardLine(line)?.let { list.add(it) } }
+                }
+            }
+        } else {
+            val list = mutableListOf<Pair<String, String>>()
+            for (raw in lines) {
+                val line = raw.trim()
+                if (line.isEmpty()) continue
+                parseCardLine(line)?.let { list.add(it) }
+            }
+            if (list.isNotEmpty()) result.add(fallbackDeckName.ifBlank { "Importált pakli" } to list)
+        }
+
+        return result.filter { it.second.isNotEmpty() }
+    }
+
+    private fun parseCardLine(line: String): Pair<String, String>? {
+        val parts = line.split(Regex("\\s*—\\s*"), limit = 2)
+        if (parts.size != 2) return null
+        val dict = parts[0].trim()
+        val trans = parts[1].trim()
+        if (dict.isEmpty() || trans.isEmpty()) return null
+        return dict to trans
+    }
+
     suspend fun saveSettings(settings: AiSettings) {
         context.dataStore.edit { prefs ->
             prefs[Keys.PROVIDER] = settings.provider.name

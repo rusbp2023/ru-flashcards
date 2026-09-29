@@ -1,5 +1,6 @@
 package com.ruflashcards.app
 
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -283,7 +284,8 @@ fun DecksScreen(
     activeDeckId: Long,
     onSelect: (Long) -> Unit,
     onCreate: (String) -> Unit,
-    onDelete: (Long) -> Unit
+    onDelete: (Long) -> Unit,
+    onImport: (text: String, fallbackDeckName: String) -> Unit
 ) {
     var newName by remember { mutableStateOf("") }
     var deckToDelete by remember { mutableStateOf<Deck?>(null) }
@@ -301,6 +303,21 @@ fun DecksScreen(
                 Toast.makeText(context, "Elmentve", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Nem sikerült a mentés: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val text = context.contentResolver.openInputStream(uri)
+                    ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                val displayName = queryDisplayName(context, uri)?.removeSuffix(".txt") ?: "Importált pakli"
+                onImport(text, displayName)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Nem sikerült beolvasni a fájlt: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -329,6 +346,11 @@ fun DecksScreen(
             }) { Text("Új pakli") }
         }
         Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { importLauncher.launch("text/plain") },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Pakli(k) feltöltése (txt)") }
+        Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = {
                 pendingExportText = allDecksToText(decks)
@@ -401,4 +423,15 @@ private fun allDecksToText(decks: List<Deck>): String =
 private fun safeFileName(name: String): String {
     val cleaned = name.trim().replace(Regex("[^\\p{L}\\p{N} _-]"), "_")
     return cleaned.ifBlank { "pakli" }
+}
+
+private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String? {
+    return try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+        }
+    } catch (e: Exception) {
+        null
+    }
 }

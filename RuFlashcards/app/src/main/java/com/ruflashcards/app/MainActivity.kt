@@ -149,7 +149,19 @@ fun AppRoot(store: Store) {
                         screen = Screen.CARDS
                     },
                     onCreate = { name -> scope.launch { store.createDeck(name) } },
-                    onDelete = { id -> scope.launch { store.deleteDeck(id) } }
+                    onDelete = { id -> scope.launch { store.deleteDeck(id) } },
+                    onImport = { text, fallbackName ->
+                        scope.launch {
+                            val summary = store.importFromTxt(text, fallbackName)
+                            if (summary.cardCount == 0) {
+                                snackbarHostState.showSnackbar("Nem sikerült kártyákat találni a fájlban.")
+                            } else {
+                                snackbarHostState.showSnackbar(
+                                    "Behozva: ${summary.deckCount} pakli, ${summary.cardCount} kártya"
+                                )
+                            }
+                        }
+                    }
                 )
 
                 Screen.SETTINGS -> SettingsScreen(
